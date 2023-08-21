@@ -1,0 +1,108 @@
+version: '3.8'
+
+networks:
+  iam-demo-net:
+    driver: bridge
+
+services:
+  openldap:
+    build: openldap
+    ports:
+      - '1389:1389'
+      - '1636:1636'
+    environment:
+      - LDAP_ADMIN_USERNAME=admin
+      - LDAP_ADMIN_PASSWORD=secret
+      - LDAP_ROOT=dc=demo,dc=atricore,dc=com
+    networks:
+      - iam-demo-net
+
+  josso:
+    build: josso
+    ports:
+      - '8081:8081'
+    environment:
+        - JOSSO_CLIENT_ID=idbus-f2f7244e-bbce-44ca-8b33-f5c0bde339f7
+        - JOSSO_CLIENT_SECRET=7oUHlv(HLT%vxK4L
+        - JOSSO_ADMIN_USR=myadmin
+        - JOSSO_ADMIN_PWD=changeme
+        - JOSSO_SKIP_ADMIN_CREATE=false
+        - JOSSO_BINDING_HTTP_FOLLOWREDIRECTS=false
+        - KARAF_DEBUG=true
+    networks:
+      - iam-demo-net
+    depends_on:
+      - openldap
+
+  josso-wb:
+    image: atricore/josso-wb:3.1.1-unstable
+    ports:
+      - '8082:8082'
+    networks:
+      - iam-demo-net
+    depends_on:
+      - josso
+
+  tomcat:
+    build: tomcat
+    ports:
+      - '8180:8180'
+    networks:
+      - iam-demo-net
+    depends_on:
+      - josso
+
+  midpoint_data:
+    image: postgres:13-alpine
+    environment:
+     - POSTGRES_PASSWORD_FILE=/run/secrets/mp_database_password.txt
+     - POSTGRES_USER=midpoint
+     - POSTGRES_INITDB_ARGS=--lc-collate=en_US.utf8 --lc-ctype=en_US.utf8
+    ports:
+     - 5432:5432
+    networks:
+     - iam-demo-net
+    secrets:
+     - mp_database_password.txt
+    volumes:
+     - midpoint_data:/var/lib/postgresql/data
+
+  midpoint_server:
+      build: ./midpoint_server/
+      depends_on:
+      - midpoint_data
+      ports:
+        - 8080:8080
+      environment:
+      - REPO_DATABASE_TYPE=postgresql
+      - REPO_HOST=midpoint_data
+      - REPO_DATABASE=midpoint
+      - REPO_USER=midpoint
+      - REPO_PASSWORD_FILE=/run/secrets/mp_database_password.txt
+      - REPO_MISSING_SCHEMA_ACTION
+      - REPO_UPGRADEABLE_SCHEMA_ACTION
+      - REPO_SCHEMA_VERSION_IF_MISSING
+      - REPO_SCHEMA_VARIANT
+      - MP_KEYSTORE_PASSWORD_FILE=/run/secrets/mp_keystore_password.txt
+      - MP_MEM_MAX
+      - MP_MEM_INIT
+      - MP_JAVA_OPTS
+      - TZ
+      networks:
+      - iam-demo-net
+      secrets:
+      - mp_database_password.txt
+      - mp_keystore_password.txt
+      volumes:
+      - midpoint_home:/opt/midpoint/var
+
+
+secrets:
+  mp_database_password.txt:
+    file: ./postgresql/configs-and-secrets/midpoint/database_password.txt
+  mp_keystore_password.txt:
+    file: ./postgresql/configs-and-secrets/midpoint/keystore_password.txt
+    
+volumes:
+  midpoint_data:
+  midpoint_home:
